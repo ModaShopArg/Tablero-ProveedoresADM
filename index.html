@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Gerencial de Proveedores</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- html2canvas & jsPDF para exportar a PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    
+    <!-- Chart.js para gráficos -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background-color: #f8fafc; }
+        .fade-in { animation: fadeIn 0.4s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+
+        .pdf-mode { background-color: #ffffff !important; }
+        .pdf-mode * { animation: none !important; transition: none !important; opacity: 1 !important; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useMemo, useEffect, useRef } = React;
+
+        const generateId = () => Math.random().toString(36).substr(2, 9);
+        const FECHA_ACTUAL = new Date(); 
+        
+        const formatCurrency = (amount) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2 }).format(amount || 0);
+        const formatDate = (dateString) => {
+            if (!dateString) return '-';
+            const [year, month, day] = dateString.split('T')[0].split('-');
+            return `${day}/${month}/${year}`;
+        };
+        const getStartOfWeek = (d) => {
+            const date = new Date(d);
+            const day = date.getDay();
+            const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+            return new Date(date.setDate(diff)).toISOString().split('T')[0];
+        };
+        const getEndOfWeek = (start) => {
+            const date = new Date(start);
+            date.setDate(date.getDate() + 6);
+            return date.toISOString().split('T')[0];
+        };
+        const getStartOfMonth = (d) => {
+            return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0];
+        };
+
+        const Icon = ({ name, size = 20, className = "" }) => {
+            const icons = {
+                'plus': `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M5 12h14"/><path d="M12 5v14"/></svg>`,
+                'trash': `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`,
+                'edit': `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`,
+                'x': `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`,
+                'eye': `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>`,
+                'alert': `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" x2="12" y1="9" y2="13"/><line x1="12" x2="12.01" y1="17" y2="17"/></svg>`,
+                'search': `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>`,
+                'download': `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>`,
+                'arrow-left': `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>`,
+                'check': `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><polyline points="20 6 9 17 4 12"/></svg>`,
+                'bell': `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>`,
+                'database': `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>`,
+                'brain': `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4 4.5 4.5 0 0 1 3 4 4.5 4.5 0 0 1 3-4Z"/></svg>`,
+                'trending-up': `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>`,
+                'pie-chart': `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>`,
+                'calendar': `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>`
+            };
+            return <span dangerouslySetInnerHTML={{ __html: icons[name] || '' }} />;
+        };
+
+        const App = () => {
+            const loadLocalData = (key, defaultValue) => {
+                const stored = localStorage.getItem(key);
+                return stored ? JSON.parse(stored) : defaultValue;
+            };
+
+            const [providers, setProviders] = useState(() => loadLocalData('modashop_providers', []));
+            const [transactions, setTransactions] = useState(() => loadLocalData('modashop_transactions', []));
+            
+            const [currentView, setCurrentView] = useState('main');
+            const [selectedProviderId, setSelectedProviderId] = useState(null);
+            const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, message: '', onConfirm: null });
+            const [pdfConfig, setPdfConfig] = useState({ isOpen: false });
+            const [isAlertsOpen, setIsAlertsOpen] = useState(false);
+
+            useEffect(() => {
+                localStorage.setItem('modashop_providers', JSON.stringify(providers));
+                localStorage.setItem('modashop_transactions', JSON.stringify(transactions));
+            }, [providers, transactions]);
+
+            const confirmAction = (message, onConfirm) => setConfirmDialog({ isOpen: true, message, onConfirm });
+
+            const providerCalculations = useMemo(() => {
+                const calcs = {};
+                const startOfThisWeek = getStartOfWeek(FECHA_ACTUAL);
+                const endOfThisWeek = getEndOfWeek(startOfThisWeek);
+                const todayDate = new Date(FECHA_ACTUAL.getFullYear(), FECHA_ACTUAL.getMonth(), FECHA_ACTUAL.getDate());
+
+                providers.forEach(p => { 
+                    calcs[p.id] = { 
+                        partA: p.initialBalanceA || 0, partB: p.initialBalanceB || 0, 
+                        total: 0, paidThisWeek: 0, lastMerchandise: null,
+                        dueStatus: { isOverdue: false, days: 0, overdueInvoicesCount: 0, overdueAmount: 0 }
+                    }; 
+                });
+
+                providers.forEach(p => {
+                    const pTxs = transactions.filter(t => t.providerId === p.id).sort((a,b) => new Date(a.date) - new Date(b.date));
+                    let unallocatedA = 0;
+                    let unallocatedB = 0;
+                    
+                    pTxs.forEach(t => {
+                        const netA = (t.amountA_debit || 0) - (t.amountA_credit || 0);
+                        const netB = (t.amountB_debit || 0) - (t.amountB_credit || 0);
+                        calcs[p.id].partA += netA;
+                        calcs[p.id].partB += netB;
+
+                        if ((t.type === 'payment' || t.type === 'credit_note') && t.date >= startOfThisWeek && t.date <= endOfThisWeek) {
+                            calcs[p.id].paidThisWeek += (t.amountA_credit || 0) + (t.amountB_credit || 0);
+                        }
+
+                        if (t.type === 'invoice') {
+                            if (!calcs[p.id].lastMerchandise || t.date > calcs[p.id].lastMerchandise) {
+                                calcs[p.id].lastMerchandise = t.date;
+                            }
+                        } else if ((t.type === 'payment' || t.type === 'credit_note') && (!t.allocatedTo || t.allocatedTo.length === 0)) {
+                            unallocatedA += (t.amountA_credit || 0);
+                            unallocatedB += (t.amountB_credit || 0);
+                        }
+                    });
+
+                    // Descontar saldo inicial
+                    if (p.initialBalanceA > 0 && unallocatedA > 0) {
+                        unallocatedA -= Math.min(p.initialBalanceA, unallocatedA);
+                    }
+                    if (p.initialBalanceB > 0 && unallocatedB > 0) {
+                        unallocatedB -= Math.min(p.initialBalanceB, unallocatedB);
+                    }
+
+                    let maxOverdueDays = 0;
+                    pTxs.forEach(t => {
+                        if (t.type === 'invoice' && t.dueDate) {
+                            let owedA = t.amountA_debit || 0;
+                            let owedB = t.amountB_debit || 0;
+                            
+                            const specificPayments = pTxs.filter(pay => Array.isArray(pay.allocatedTo) && pay.allocatedTo.includes(t.id));
+                            specificPayments.forEach(pay => {
+                                owedA -= (pay.amountA_credit || 0);
+                                owedB -= (pay.amountB_credit || 0);
+                            });
+
+                            if (owedA > 0 && unallocatedA > 0) {
+                                const takeA = Math.min(owedA, unallocatedA);
+                                owedA -= takeA; unallocatedA -= takeA;
+                            }
+                            if (owedB > 0 && unallocatedB > 0) {
+                                const takeB = Math.min(owedB, unallocatedB);
+                                owedB -= takeB; unallocatedB -= takeB;
+                            }
+
+                            const totalOwedRemaining = owedA + owedB;
+                            if (totalOwedRemaining > 0.01) {
+                                const [y, m, d] = t.dueDate.split('-');
+                                const due = new Date(y, m - 1, d);
+                                const diffTime = todayDate.getTime() - due.getTime();
+                                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                                
+                                if (diffDays > 0) {
+                                    calcs[p.id].dueStatus.overdueInvoicesCount += 1;
+                                    calcs[p.id].dueStatus.overdueAmount += totalOwedRemaining;
+                                    if (diffDays > maxOverdueDays) {
+                                        maxOverdueDays = diffDays;
+                                        calcs[p.id].dueStatus.isOverdue = true;
+                                        calcs[p.id].dueStatus.days = maxOverdueDays;
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    calcs[p.id].total = calcs[p.id].partA + calcs[p.id].partB;
+                    if (calcs[p.id].total <= 0) {
+                        calcs[p.id].dueStatus.isOverdue = false;
+                        calcs[p.id].dueStatus.overdueInvoicesCount = 0;
+                        calcs[p.id].dueStatus.overdueAmount = 0;
+                    }
+                });
+
+                return calcs;
+            }, [providers, transactions]);
+
+            const overdueList = useMemo(() => {
+                return providers.filter(p => providerCalculations[p.id].dueStatus.isOverdue).map(p => ({
+                    ...p,
+                    days: providerCalculations[p.id].dueStatus.days,
+                    count: providerCalculations[p.id].dueStatus.overdueInvoicesCount,
+                    amount: providerCalculations[p.id].dueStatus.overdueAmount
+                }));
+            }, [providers, providerCalculations]);
+
+            const executePDFExport = async (orientation) => {
+                setPdfConfig({ isOpen: false });
+                const element = document.getElementById('pdf-export-area');
+                if(!element) return;
+                
+                try {
+                    document.body.style.cursor = 'wait';
+
+                    const canvas = await window.html2canvas(element, { 
+                        scale: 2, backgroundColor: '#ffffff', logging: false, useCORS: true,
+                        onclone: (clonedDoc) => {
+                            // Limpieza del clon para no arrastrar clases interactivas
+                            const hiddenElements = clonedDoc.querySelectorAll('.no-pdf');
+                            hiddenElements.forEach(el => el.parentNode.removeChild(el));
+                            
+                            const clonedElement = clonedDoc.getElementById('pdf-export-area');
+                            if(clonedElement) clonedElement.classList.add('pdf-mode');
+                        }
+                    });
+                    
+                    const imgData = canvas.toDataURL('image/jpeg', 1.0); 
+                    const pdf = new window.jspdf.jsPDF(orientation === 'landscape' ? 'l' : 'p', 'mm', 'a4');
+                    const pdfWidth = pdf.internal.pageSize.getWidth();
+                    const pdfHeight = pdf.internal.pageSize.getHeight();
+                    const imgProps = pdf.getImageProperties(imgData);
+                    const imgRatio = imgProps.width / imgProps.height;
+                    
+                    let finalWidth = pdfWidth - 20; 
+                    let finalHeight = finalWidth / imgRatio;
+
+                    if(finalHeight > pdfHeight - 20) {
+                        finalHeight = pdfHeight - 20;
+                        finalWidth = finalHeight * imgRatio;
+                    }
+                    
+                    pdf.addImage(imgData, 'JPEG', (pdfWidth - finalWidth) / 2, 10, finalWidth, finalHeight);
+                    pdf.save(`Reporte_Gerencial_${orientation}_${FECHA_ACTUAL.toISOString().split('T')[0]}.pdf`);
+
+                } catch (error) {
+                    console.error("Error exportando:", error);
+                } finally {
+                    document.body.style.cursor = 'default';
+                }
+            };
+
+            const DashboardView = () => {
+                const [searchTerm, setSearchTerm] = useState('');
+                const [isAddingProvider, setIsAddingProvider] = useState(false);
+                const [newProv, setNewProv] = useState({ name: '', terms: 30, balA: 0, balB: 0 });
+
+                const [dateFrom, setDateFrom] = useState(getStartOfMonth(FECHA_ACTUAL));
+                const [dateTo, setDateTo] = useState(FECHA_ACTUAL.toISOString().split('T')[0]);
+                
+                const chartDonutRef = useRef(null);
+                const chartInstDonut = useRef(null);
+
+                const totalGlobalA = Object.values(providerCalculations).reduce((sum, b) => sum + b.partA, 0);
+                const totalGlobalB = Object.values(providerCalculations).reduce((sum, b) => sum + b.partB, 0);
+                const saldoTotalGeneral = totalGlobalA + totalGlobalB;
+
+                const filteredProviders = providers.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
+
+                const submitNewProvider = (e) => {
+                    e.preventDefault();
+                    if (newProv.name.trim()) {
+                        const newProvider = { 
+                            id: generateId(), name: newProv.name.toUpperCase(), 
+                            paymentTermsDays: parseInt(newProv.terms) || 0,
+                            initialBalanceA: parseFloat(newProv.balA) || 0,
+                            initialBalanceB: parseFloat(newProv.balB) || 0
+                        };
+                        setProviders(prev => [...prev, newProvider]);
+                        setNewProv({ name: '', terms: 30, balA: 0, balB: 0 }); 
+                        setIsAddingProvider(false);
+                    }
+                };
+
+            // LÓGICA DE DIAGNÓSTICO PROFESIONAL
+            const [advancedInsights, setAdvancedInsights] = useState([]);
+            const [executiveSummary, setExecutiveSummary] = useState('');
+
+            useEffect(() => {
+                if (!window.Chart) return;
+
+                const txsPeriod = transactions.filter(t => t.date >= dateFrom && t.date <= dateTo);
+                
+                let periodPurchases = 0; 
+                let periodPayments = 0;
+                let provVolumes = {}; 
+
+                txsPeriod.forEach(t => {
+                    const amount = (t.amountA_debit || 0) + (t.amountB_debit || 0) + (t.amountA_credit || 0) + (t.amountB_credit || 0);
+                    if (t.type === 'invoice') {
+                        periodPurchases += amount;
+                        provVolumes[t.providerId] = (provVolumes[t.providerId] || 0) + amount;
+                    } else {
+                        periodPayments += amount;
+                    }
+                });
+
+                // Inicializamos el array de insights
+                const insights = [];
+
+                // 1. Ratio de Cobertura (Liquidez)
+                if (periodPurchases > 0) {
+                    const coverage = ((periodPayments / periodPurchases) * 100).toFixed(1);
+                    const isGood = coverage >= 90;
+                    insights.push({
+                        title: 'Capacidad de Pago',
+                        icon: isGood ? 'trending-up' : 'alert',
+                        color: isGood ? 'text-green-600 bg-green-50 border-green-200' : 'text-amber-600 bg-amber-50 border-amber-200',
+                        value: `${coverage}%`,
+                        desc: `Se ha pagado el ${coverage}% del valor de las compras realizadas en este período. ${isGood ? 'Excelente ritmo de cancelación.' : 'Atención: El endeudamiento está superando la capacidad de pago a corto plazo.'}`
+                    });
+                } else if (periodPayments > 0) {
+                     insights.push({
+                        title: 'Esfuerzo de Pago',
+                        icon: 'check', color: 'text-blue-600 bg-blue-50 border-blue-200',
+                        value: formatCurrency(periodPayments),
+                        desc: 'No se registraron compras en el período, pero se redujo el pasivo histórico abonando deuda atrasada.'
+                    });
+                }
+
+                // 2. Concentración de Pasivos (Riesgo)
+                if (saldoTotalGeneral > 0) {
+                    const topDebts = Object.entries(providerCalculations)
+                        .map(([id, calc]) => ({ id, total: calc.total }))
+                        .sort((a,b) => b.total - a.total);
+                    
+                    if (topDebts.length > 0 && topDebts[0].total > 0) {
+                        const concentration = ((topDebts[0].total / saldoTotalGeneral) * 100).toFixed(1);
+                        const topProvName = providers.find(p => p.id === topDebts[0].id)?.name;
+                        const isHighRisk = concentration > 40;
+                        
+                        insights.push({
+                            title: 'Concentración de Deuda',
+                            icon: 'pie-chart',
+                            color: isHighRisk ? 'text-red-600 bg-red-50 border-red-200' : 'text-fuchsia-700 bg-fuchsia-50 border-fuchsia-200',
+                            value: `${concentration}%`,
+                            desc: `El proveedor **${topProvName}** concentra el ${concentration}% de tu pasivo total actual. ${isHighRisk ? 'Riesgo alto: Se recomienda diversificar las obligaciones.' : 'Distribución de deuda controlada.'}`
+                        });
+                    }
+                }
+
+                // 3. Índice de Morosidad Global
+                const totalOverdue = overdueList.reduce((acc, p) => acc + p.amount, 0);
+                if (saldoTotalGeneral > 0) {
+                    const morosidad = ((totalOverdue / saldoTotalGeneral) * 100).toFixed(1);
+                    insights.push({
+                        title: 'Índice de Morosidad',
+                        icon: morosidad > 0 ? 'alert' : 'check',
+                        color: morosidad > 15 ? 'text-red-600 bg-red-50 border-red-200' : (morosidad > 0 ? 'text-amber-600 bg-amber-50 border-amber-200' : 'text-green-600 bg-green-50 border-green-200'),
+                        value: `${morosidad}%`,
+                        desc: morosidad > 0 ? `Del total de tu deuda general, **${formatCurrency(totalOverdue)}** se encuentra con plazo vencido.` : 'Felicidades, no tenés deuda vencida en este momento.'
+                    });
+                }
+
+                setAdvancedInsights(insights);
+
+                // 4. Conclusión Narrativa (Executive Summary)
+                let conclusion = "";
+                if (periodPurchases === 0 && periodPayments === 0 && saldoTotalGeneral === 0) {
+                    conclusion = "No se registran movimientos financieros ni saldos en el período seleccionado.";
+                } else {
+                    conclusion = `<strong class="text-gray-900 font-black tracking-wide">CONCLUSIÓN DEL PERÍODO:</strong><br/>En el rango analizado (${formatDate(dateFrom)} al ${formatDate(dateTo)}), `;
+                    if (periodPurchases > 0) {
+                        const coverage = ((periodPayments / periodPurchases) * 100);
+                        conclusion += `las nuevas compras alcanzaron los <strong>${formatCurrency(periodPurchases)}</strong> y se abonaron <strong>${formatCurrency(periodPayments)}</strong>. Esto representa una liquidez sobre compras del <strong>${coverage.toFixed(1)}%</strong>, lo que indica ${coverage >= 90 ? '<span class="text-green-600 font-bold">una excelente capacidad para afrontar nuevas obligaciones sin acumular pasivos</span>.' : '<span class="text-amber-600 font-bold">un déficit donde los pagos no logran cubrir las compras del período, acumulando deuda</span>.'} `;
+                    } else if (periodPayments > 0) {
+                        conclusion += `no se efectuaron nuevas compras, pero se abonaron <strong>${formatCurrency(periodPayments)}</strong>, lo que refleja un esfuerzo dirigido a sanear el pasivo histórico. `;
+                    }
+
+                    if (saldoTotalGeneral > 0) {
+                        const topDebts = Object.entries(providerCalculations).map(([id, calc]) => ({ id, total: calc.total })).sort((a,b) => b.total - a.total);
+                        if (topDebts.length > 0 && topDebts[0].total > 0) {
+                            const topProvName = providers.find(p => p.id === topDebts[0].id)?.name;
+                            const concentration = ((topDebts[0].total / saldoTotalGeneral) * 100);
+                            conclusion += `Actualmente, el pasivo total es de <strong>${formatCurrency(saldoTotalGeneral)}</strong>. Se observa que el proveedor <strong>${topProvName}</strong> concentra el <strong>${concentration.toFixed(1)}%</strong> de esta deuda, marcando ${concentration > 40 ? '<span class="text-red-600 font-bold">una exposición muy alta que supone riesgo crediticio</span>.' : 'una distribución balanceada del pasivo.'} `;
+                        }
+                    }
+
+                    if (saldoTotalGeneral > 0) {
+                        const morosidad = ((totalOverdue / saldoTotalGeneral) * 100);
+                        if (morosidad > 0) {
+                            conclusion += `Es de atención prioritaria el índice de morosidad del <strong>${morosidad.toFixed(1)}%</strong> (<strong>${formatCurrency(totalOverdue)}</strong> vencidos) para evitar interrupciones en la cadena de suministro.`;
+                        } else {
+                            conclusion += `Afortunadamente, la cartera está sana y <strong>no se registran facturas vencidas</strong> a la fecha.`;
+                        }
+                    }
+                }
+                setExecutiveSummary(conclusion);
+
+                // Gráfico de Deuda (Mantiene su funcionalidad)
+                if (chartInstDonut.current) chartInstDonut.current.destroy();
+                    chartInstDonut.current = new window.Chart(chartDonutRef.current, {
+                        type: 'doughnut',
+                        data: {
+                            labels: ['Parte A', 'Parte B'],
+                            datasets: [{ data: [totalGlobalA, totalGlobalB], backgroundColor: ['#d946ef', '#111827'], borderWidth: 0, hoverOffset: 4 }]
+                        },
+                        options: { animation: false, responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { position: 'bottom' } } }
+                    });
+
+                }, [transactions, providers, dateFrom, dateTo, totalGlobalA, totalGlobalB, overdueList, providerCalculations]);
+
+                return (
+                    <div className="space-y-6 fade-in">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div className="bg-white p-6 rounded-2xl border-2 border-fuchsia-100 shadow-sm">
+                                <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2">TOTAL PARTE A</h3>
+                                <p className="text-3xl font-black text-gray-900">{formatCurrency(totalGlobalA)}</p>
+                            </div>
+                            <div className="bg-white p-6 rounded-2xl border-2 border-gray-200 shadow-sm">
+                                <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2">TOTAL PARTE B</h3>
+                                <p className="text-3xl font-black text-gray-900">{formatCurrency(totalGlobalB)}</p>
+                            </div>
+                            <div className="bg-black p-6 rounded-2xl shadow-lg border-2 border-black text-white relative overflow-hidden">
+                                <div className="absolute -right-6 -top-6 w-32 h-32 bg-fuchsia-600 rounded-full blur-[60px] opacity-40"></div>
+                                <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2 relative z-10">SALDO TOTAL A PAGAR</h3>
+                                <p className="text-4xl font-black text-white relative z-10">{formatCurrency(saldoTotalGeneral)}</p>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div className="p-6 border-b border-gray-100 bg-gray-50 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 no-pdf">
+                            <div>
+                                <h2 className="text-xl font-black text-gray-900 tracking-tight flex items-center gap-2"><Icon name="brain" className="text-fuchsia-600"/> Inteligencia Gerencial</h2>
+                                <p className="text-gray-500 text-sm font-medium mt-1">Diagnóstico financiero del período seleccionado.</p>
+                            </div>
+                            <div className="flex flex-col sm:flex-row flex-wrap gap-4 items-center justify-end w-full xl:w-auto">
+                                <div className="flex gap-2 w-full sm:w-auto justify-center no-pdf">
+                                    <button onClick={() => { const now = new Date(); setDateFrom(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]); setDateTo(new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0]); }} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-black shadow-sm">Este Mes</button>
+                                    <button onClick={() => { const now = new Date(); setDateFrom(new Date(now.getFullYear(), 0, 1).toISOString().split('T')[0]); setDateTo(new Date(now.getFullYear(), 11, 31).toISOString().split('T')[0]); }} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-black shadow-sm">Este Año</button>
+                                    <button onClick={() => { const now = new Date(); setDateFrom(new Date(now.getFullYear() - 1, 0, 1).toISOString().split('T')[0]); setDateTo(new Date(now.getFullYear() - 1, 11, 31).toISOString().split('T')[0]); }} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-black shadow-sm">Año Pasado</button>
+                                </div>
+                                <div className="flex flex-wrap gap-4 items-center bg-white p-2.5 rounded-xl border border-gray-200 shadow-sm w-full sm:w-auto justify-center">
+                                    <div className="flex items-center gap-2 px-2">
+                                        <Icon name="calendar" size={16} className="text-gray-400"/>
+                                        <label className="text-xs font-black text-gray-500 uppercase tracking-wider">Desde:</label>
+                                        <input type="date" className="border-none text-sm font-bold bg-transparent outline-none text-gray-800" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} />
+                                    </div>
+                                    <div className="w-px h-6 bg-gray-200"></div>
+                                    <div className="flex items-center gap-2 px-2">
+                                        <label className="text-xs font-black text-gray-500 uppercase tracking-wider">Hasta:</label>
+                                        <input type="date" className="border-none text-sm font-bold bg-transparent outline-none text-gray-800" value={dateTo} onChange={e=>setDateTo(e.target.value)} />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                            <div className="lg:col-span-2 flex flex-col gap-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {advancedInsights.map((insight, idx) => (
+                                        <div key={idx} className={`p-5 rounded-xl border ${insight.color} shadow-sm`}>
+                                            <div className="flex items-center gap-3 mb-3">
+                                                <div className="p-2 bg-white rounded-lg shadow-sm"><Icon name={insight.icon} size={20} /></div>
+                                                <h4 className="font-black text-sm uppercase tracking-wider opacity-80">{insight.title}</h4>
+                                            </div>
+                                            <p className="text-3xl font-black mb-2">{insight.value}</p>
+                                            <p className="text-xs font-medium leading-relaxed opacity-90" dangerouslySetInnerHTML={{__html: insight.desc}}></p>
+                                        </div>
+                                    ))}
+                                    {advancedInsights.length === 0 && (
+                                        <div className="col-span-2 p-8 text-center text-gray-400 font-medium border-2 border-dashed border-gray-200 rounded-xl">
+                                            No hay suficientes movimientos en este período para generar un diagnóstico.
+                                        </div>
+                                    )}
+                                </div>
+                                {advancedInsights.length > 0 && (
+                                    <div className="bg-gradient-to-r from-gray-50 to-white p-5 rounded-xl border border-gray-200 shadow-sm">
+                                        <p className="text-[13px] text-gray-800 leading-relaxed" dangerouslySetInnerHTML={{__html: executiveSummary}}></p>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="bg-white rounded-2xl p-6 border-2 border-gray-100 flex flex-col items-center justify-center h-full min-h-[250px]">
+                                    <h3 className="text-gray-900 font-black text-sm uppercase tracking-widest mb-1 w-full text-left">Distribución del Pasivo</h3>
+                                    <p className="text-gray-400 text-[10px] uppercase font-bold mb-4 w-full text-left">Monto global Parte A vs Parte B</p>
+                                    <div className="relative w-full max-w-[200px] flex-1"><canvas ref={chartDonutRef}></canvas></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                            <div className="px-6 py-4 flex flex-col sm:flex-row justify-between items-center gap-4 bg-white border-b border-gray-100 no-pdf">
+                                <div className="relative w-full sm:w-[400px]">
+                                    <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400"><Icon name="search" /></span>
+                                    <input type="text" placeholder="Buscar proveedor..." className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:border-fuchsia-500 outline-none transition-all font-medium" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                                </div>
+                                <div className="flex gap-3 w-full sm:w-auto">
+                                    <button onClick={() => setIsAddingProvider(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-fuchsia-600 hover:bg-fuchsia-700 text-white font-bold px-6 py-3 rounded-xl transition-all"><Icon name="plus" /> Nuevo</button>
+                                    <button onClick={() => setPdfConfig({ isOpen: true })} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-white hover:bg-gray-50 text-gray-700 font-bold px-6 py-3 rounded-xl border border-gray-200 transition-all"><Icon name="download" /> PDF</button>
+                                </div>
+                            </div>
+                            
+                            <div className="overflow-x-auto hide-scrollbar">
+                                <table className="w-full text-sm text-left whitespace-nowrap border-collapse">
+                                    <thead>
+                                        <tr className="bg-gray-50/80 text-gray-500 text-[11px] uppercase tracking-widest border-b-2 border-gray-200 font-black">
+                                            <th className="px-6 py-4">PROVEEDOR</th>
+                                            <th className="px-6 py-4 text-center">PLAZO</th>
+                                            <th className="px-6 py-4 text-center">ÚLTIMA MERC.</th>
+                                            <th className="px-6 py-4 text-right text-fuchsia-800">PARTE A</th>
+                                            <th className="px-6 py-4 text-right text-gray-800">PARTE B</th>
+                                            <th className="px-6 py-4 text-right text-gray-800">SALDO A PAGAR</th>
+                                            <th className="px-6 py-4 text-center no-pdf">ACCIONES</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {filteredProviders.map(provider => {
+                                            const calcs = providerCalculations[provider.id];
+                                            return (
+                                                <tr key={provider.id} className="hover:bg-gray-50 cursor-pointer group transition-colors bg-white" onClick={() => { setSelectedProviderId(provider.id); setCurrentView('details'); }}>
+                                                    <td className="px-6 py-4 font-black text-gray-900">
+                                                        {provider.name}
+                                                        {calcs.dueStatus.isOverdue && <span className="ml-3 inline-flex items-center text-[9px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-black uppercase tracking-wider">! Vencido</span>}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-center text-gray-400 text-xs font-bold">{provider.paymentTermsDays}d</td>
+                                                    <td className="px-6 py-4 text-center text-gray-500 font-medium text-xs">{formatDate(calcs.lastMerchandise)}</td>
+                                                    <td className="px-6 py-4 text-right font-mono font-medium text-gray-600">{formatCurrency(calcs.partA)}</td>
+                                                    <td className="px-6 py-4 text-right font-mono font-medium text-gray-600">{formatCurrency(calcs.partB)}</td>
+                                                    <td className={`px-6 py-4 text-right font-mono font-bold ${calcs.total > 0 ? 'text-red-500' : 'text-gray-900'}`}>{formatCurrency(calcs.total)}</td>
+                                                    <td className="px-6 py-4 text-center no-pdf" onClick={e => e.stopPropagation()}>
+                                                        <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <button onClick={() => { setSelectedProviderId(provider.id); setCurrentView('details'); }} className="p-1.5 bg-black text-white rounded hover:bg-gray-800" title="Ver"><Icon name="eye" size={16}/></button>
+                                                            <button onClick={() => confirmAction(`¿Eliminar al proveedor ${provider.name}?`, () => { setProviders(prev=>prev.filter(p=>p.id!==provider.id)); setTransactions(prev=>prev.filter(t=>t.providerId!==provider.id)); })} className="p-1.5 bg-red-50 text-red-600 rounded hover:bg-red-100" title="Eliminar"><Icon name="trash" size={16}/></button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )
+                                        })}
+                                    </tbody>
+                                    <tfoot>
+                                        <tr className="bg-gray-100 text-gray-900 font-black text-sm border-t-2 border-gray-300">
+                                            <td colSpan="3" className="px-6 py-5 text-right uppercase tracking-widest text-gray-600 text-xs">SUMATORIA:</td>
+                                            <td className="px-6 py-5 text-right text-fuchsia-700 border-l border-gray-300 bg-fuchsia-50">{formatCurrency(totalGlobalA)}</td>
+                                            <td className="px-6 py-5 text-right text-gray-900 border-l border-gray-300 bg-white">{formatCurrency(totalGlobalB)}</td>
+                                            <td className="px-6 py-5 text-right bg-gray-200 border-l border-gray-300 text-[16px] text-black">{formatCurrency(saldoTotalGeneral)}</td>
+                                            <td className="bg-gray-100 border-none no-pdf"></td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                        </div>
+
+                        {isAddingProvider && (
+                            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 no-pdf fade-in">
+                                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+                                    <div className="p-5 border-b flex justify-between items-center bg-gray-50">
+                                        <h3 className="font-bold text-lg text-gray-900">Agregar Proveedor</h3>
+                                        <button onClick={() => setIsAddingProvider(false)} className="text-gray-400 hover:text-gray-600 bg-gray-200/50 p-1.5 rounded-full"><Icon name="x" /></button>
+                                    </div>
+                                    <form onSubmit={submitNewProvider} className="p-6 space-y-5">
+                                        <div><label className="block text-sm font-bold text-gray-700 mb-1">Razón Social</label><input required autoFocus type="text" className="w-full border-2 border-gray-200 rounded-lg p-2.5 uppercase focus:border-fuchsia-500 outline-none" value={newProv.name} onChange={e => setNewProv({...newProv, name: e.target.value})} /></div>
+                                        <div><label className="block text-sm font-bold text-gray-700 mb-1">Plazo de Pago (Días)</label><input required type="number" min="0" className="w-full border-2 border-gray-200 rounded-lg p-2.5 focus:border-fuchsia-500 outline-none" value={newProv.terms} onChange={e => setNewProv({...newProv, terms: e.target.value})} /></div>
+                                        <div className="pt-4 border-t border-gray-100">
+                                            <h4 className="font-bold text-sm mb-3 text-gray-800">Saldo Histórico Inicial <span className="text-xs font-normal text-gray-400">(Opcional)</span></h4>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div><label className="block text-xs font-bold text-fuchsia-800 mb-1">Parte A ($)</label><input type="number" step="0.01" className="w-full border-2 border-gray-200 rounded-lg p-2 focus:border-fuchsia-500 outline-none" value={newProv.balA} onChange={e => setNewProv({...newProv, balA: e.target.value})} /></div>
+                                                <div><label className="block text-xs font-bold text-gray-800 mb-1">Parte B ($)</label><input type="number" step="0.01" className="w-full border-2 border-gray-200 rounded-lg p-2 focus:border-black outline-none" value={newProv.balB} onChange={e => setNewProv({...newProv, balB: e.target.value})} /></div>
+                                            </div>
+                                        </div>
+                                        <div className="pt-4 flex justify-end gap-3">
+                                            <button type="button" onClick={() => setIsAddingProvider(false)} className="px-5 py-2.5 font-bold text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
+                                            <button type="submit" className="px-5 py-2.5 bg-fuchsia-600 text-white font-bold rounded-lg hover:bg-fuchsia-700">Guardar</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                );
+            };
+
+            const DetailsView = () => {
+                const provider = providers.find(p => p.id === selectedProviderId);
+                const [isFormOpen, setIsFormOpen] = useState(false);
+                const [editingProvider, setEditingProvider] = useState(false);
+                const [provEdit, setProvEdit] = useState(provider || {});
+                const [editingTxId, setEditingTxId] = useState(null);
+
+                const [ledgerDateFrom, setLedgerDateFrom] = useState('');
+                const [ledgerDateTo, setLedgerDateTo] = useState('');
+
+                const initialForm = { date: FECHA_ACTUAL.toISOString().split('T')[0], detail: '', receiptNumber: '', type: 'invoice', paymentMethod: '', amountA: '', amountB: '', allocatedTo: [] };
+                const [txForm, setTxForm] = useState(initialForm);
+
+                if (!provider) return null;
+
+                const allProviderTxs = transactions.filter(t => t.providerId === selectedProviderId).sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                let unallocatedPoolA = 0; let unallocatedPoolB = 0;
+                
+                allProviderTxs.forEach(tx => {
+                    if ((tx.type === 'payment' || tx.type === 'credit_note') && (!tx.allocatedTo || tx.allocatedTo.length === 0)) {
+                        unallocatedPoolA += (tx.amountA_credit || 0);
+                        unallocatedPoolB += (tx.amountB_credit || 0);
+                    }
+                });
+
+                if ((provider.initialBalanceA || 0) > 0 && unallocatedPoolA > 0) unallocatedPoolA -= Math.min(provider.initialBalanceA, unallocatedPoolA);
+                if ((provider.initialBalanceB || 0) > 0 && unallocatedPoolB > 0) unallocatedPoolB -= Math.min(provider.initialBalanceB, unallocatedPoolB);
+
+                let runningBalanceA = provider.initialBalanceA || 0; let runningBalanceB = provider.initialBalanceB || 0;
+                
+                const processedAllRows = allProviderTxs.map(tx => {
+                    const netA = (tx.amountA_debit || 0) - (tx.amountA_credit || 0);
+                    const netB = (tx.amountB_debit || 0) - (tx.amountB_credit || 0);
+                    
+                    runningBalanceA += netA; runningBalanceB += netB;
+
+                    let statusText = ''; let statusColor = ''; let isOverdue = false;
+
+                    if (tx.type === 'invoice') {
+                        let owedA = tx.amountA_debit || 0; let owedB = tx.amountB_debit || 0;
+                        let totalOwed = owedA + owedB;
+                        
+                        const specificPayments = allProviderTxs.filter(p => Array.isArray(p.allocatedTo) && p.allocatedTo.includes(tx.id));
+                        specificPayments.forEach(p => { owedA -= (p.amountA_credit || 0); owedB -= (p.amountB_credit || 0); });
+
+                        if (owedA > 0 && unallocatedPoolA > 0) { const takeA = Math.min(owedA, unallocatedPoolA); owedA -= takeA; unallocatedPoolA -= takeA; }
+                        if (owedB > 0 && unallocatedPoolB > 0) { const takeB = Math.min(owedB, unallocatedPoolB); owedB -= takeB; unallocatedPoolB -= takeB; }
+
+                        if (owedA <= 0.01 && owedB <= 0.01) { statusText = 'Pagada'; statusColor = 'bg-green-100 text-green-700'; } 
+                        else if (owedA + owedB < totalOwed) { statusText = 'Pago Parcial'; statusColor = 'bg-amber-100 text-amber-700'; } 
+                        else { statusText = 'Pendiente'; statusColor = 'bg-gray-100 text-gray-500'; }
+
+                        if ((owedA > 0.01 || owedB > 0.01) && tx.dueDate) {
+                             const [y, m, d] = tx.dueDate.split('-');
+                             const due = new Date(y, m - 1, d);
+                             const today = new Date(FECHA_ACTUAL.getFullYear(), FECHA_ACTUAL.getMonth(), FECHA_ACTUAL.getDate());
+                             if (due < today) isOverdue = true;
+                        }
+                    }
+                    return { ...tx, runningBalanceA, runningBalanceB, totalBalance: runningBalanceA + runningBalanceB, statusText, statusColor, isOverdue };
+                });
+
+                let saldoAnteriorA = provider.initialBalanceA || 0; let saldoAnteriorB = provider.initialBalanceB || 0;
+                
+                if (ledgerDateFrom) {
+                    const txsBefore = processedAllRows.filter(t => t.date < ledgerDateFrom);
+                    if (txsBefore.length > 0) {
+                        const lastTxBefore = txsBefore[txsBefore.length - 1];
+                        saldoAnteriorA = lastTxBefore.runningBalanceA; saldoAnteriorB = lastTxBefore.runningBalanceB;
+                    }
+                }
+
+                const visibleRows = processedAllRows.filter(t => {
+                    let pass = true;
+                    if (ledgerDateFrom && t.date < ledgerDateFrom) pass = false;
+                    if (ledgerDateTo && t.date > ledgerDateTo) pass = false;
+                    return pass;
+                });
+
+                const invoicesPendingList = processedAllRows.filter(t => t.type === 'invoice' && t.statusText !== 'Pagada');
+
+                const handleEditTx = (tx) => {
+                    setEditingTxId(tx.id);
+                    setTxForm({
+                        date: tx.date, detail: tx.detail, receiptNumber: tx.receiptNumber || '', type: tx.type, paymentMethod: tx.paymentMethod || '',
+                        amountA: tx.type === 'invoice' ? (tx.amountA_debit || '') : (tx.amountA_credit || ''),
+                        amountB: tx.type === 'invoice' ? (tx.amountB_debit || '') : (tx.amountB_credit || ''), allocatedTo: tx.allocatedTo || []
+                    });
+                    setIsFormOpen(true);
+                };
+
+                const handleSaveTxSubmit = (e) => {
+                    e.preventDefault();
+                    let calculatedDueDate = null;
+                    if (txForm.type === 'invoice') {
+                        const [y, m, d] = txForm.date.split('-');
+                        const dateObj = new Date(y, m - 1, d);
+                        dateObj.setDate(dateObj.getDate() + Number(provider.paymentTermsDays));
+                        calculatedDueDate = dateObj.toISOString().split('T')[0];
+                    }
+
+                    const amtA = parseFloat(txForm.amountA) || 0; const amtB = parseFloat(txForm.amountB) || 0;
+
+                    const newTx = {
+                        id: editingTxId || generateId(), providerId: provider.id, date: txForm.date, detail: txForm.detail.toUpperCase(), receiptNumber: txForm.receiptNumber, type: txForm.type, 
+                        paymentMethod: txForm.type === 'payment' ? txForm.paymentMethod : null,
+                        amountA_debit: txForm.type === 'invoice' ? amtA : 0, amountA_credit: txForm.type !== 'invoice' ? amtA : 0, 
+                        amountB_debit: txForm.type === 'invoice' ? amtB : 0, amountB_credit: txForm.type !== 'invoice' ? amtB : 0,
+                        dueDate: calculatedDueDate, allocatedTo: (txForm.type === 'payment' && txForm.allocatedTo.length > 0) ? txForm.allocatedTo : []
+                    };
+
+                    setTransactions(prev => {
+                        const exists = prev.find(t => t.id === newTx.id);
+                        if (exists) return prev.map(t => t.id === newTx.id ? newTx : t);
+                        return [...prev, newTx];
+                    });
+                    setIsFormOpen(false); setEditingTxId(null);
+                };
+
+                return (
+                    <div className="space-y-6 fade-in bg-white rounded-xl shadow-sm border border-gray-200">
+                        <div className="p-6 border-b border-gray-100 flex flex-col md:flex-row justify-between items-center gap-4">
+                            <div className="flex items-center gap-4 w-full md:w-auto">
+                                <button onClick={() => setCurrentView('main')} className="no-pdf p-2.5 bg-white border-2 border-gray-100 hover:border-gray-300 rounded-xl text-gray-500 hover:text-black transition-all shadow-sm"><Icon name="arrow-left" /></button>
+                                <div className="flex-1">
+                                    {editingProvider ? (
+                                        <div className="flex gap-2 items-center">
+                                            <input type="text" value={provEdit.name} onChange={e=>setProvEdit({...provEdit, name: e.target.value})} className="font-black text-2xl border-b-2 border-fuchsia-500 uppercase bg-transparent outline-none w-full sm:w-auto text-gray-900" />
+                                            <input type="number" value={provEdit.paymentTermsDays} onChange={e=>setProvEdit({...provEdit, paymentTermsDays: e.target.value})} className="w-16 border-2 border-gray-200 rounded p-1 text-sm outline-none focus:border-fuchsia-500 font-bold" title="Días Plazo" />
+                                            <button onClick={() => { setProviders(prev=>prev.map(p=>p.id===provider.id ? {...provider, name: provEdit.name.toUpperCase(), paymentTermsDays: parseInt(provEdit.paymentTermsDays)} : p)); setEditingProvider(false); }} className="text-white bg-black p-1.5 rounded hover:bg-gray-800"><Icon name="check" size={16} /></button>
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center gap-3">
+                                            <h2 className="text-3xl font-black text-gray-900 uppercase tracking-tight">{provider.name}</h2>
+                                            <button onClick={() => { setProvEdit(provider); setEditingProvider(true); }} className="no-pdf text-gray-300 hover:text-fuchsia-600 transition-colors"><Icon name="edit" size={18}/></button>
+                                        </div>
+                                    )}
+                                    <p className="text-sm text-gray-400 font-bold mt-1 tracking-wide">CONDICIÓN: {provider.paymentTermsDays} DÍAS</p>
+                                </div>
+                            </div>
+                            <div className="flex gap-3 w-full md:w-auto no-pdf">
+                                <button onClick={() => setPdfConfig({ isOpen: true })} className="flex-1 md:flex-none px-5 py-2.5 bg-white border border-gray-200 text-gray-700 font-bold rounded-xl shadow-sm hover:bg-gray-50 flex justify-center items-center gap-2"><Icon name="download" /> Exportar</button>
+                                <button onClick={() => { setEditingTxId(null); setTxForm(initialForm); setIsFormOpen(true); }} className="flex-1 md:flex-none px-5 py-2.5 bg-fuchsia-600 text-white font-bold rounded-xl hover:bg-fuchsia-700 flex justify-center items-center gap-2"><Icon name="plus" /> Movimiento</button>
+                            </div>
+                        </div>
+
+                        <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 flex gap-4 items-center no-pdf">
+                            <span className="text-xs font-black text-gray-500 uppercase flex items-center gap-2"><Icon name="search" size={14}/> Filtrar Período:</span>
+                            <input type="date" className="border border-gray-200 rounded p-1.5 text-sm font-bold bg-white text-gray-700" value={ledgerDateFrom} onChange={e=>setLedgerDateFrom(e.target.value)} title="Desde"/>
+                            <input type="date" className="border border-gray-200 rounded p-1.5 text-sm font-bold bg-white text-gray-700" value={ledgerDateTo} onChange={e=>setLedgerDateTo(e.target.value)} title="Hasta"/>
+                            {(ledgerDateFrom || ledgerDateTo) && (
+                                <button onClick={() => {setLedgerDateFrom(''); setLedgerDateTo('');}} className="text-xs text-fuchsia-600 font-bold hover:underline">Limpiar Filtros</button>
+                            )}
+                        </div>
+
+                        {}
+                        {isFormOpen && (
+                            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 no-pdf fade-in">
+                                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden">
+                                    <div className="px-6 py-5 border-b flex justify-between items-center bg-gray-50">
+                                        <h3 className="font-black text-xl text-gray-900">{editingTxId ? 'Editar Movimiento' : 'Registrar Movimiento'}</h3>
+                                        <button onClick={() => setIsFormOpen(false)} className="text-gray-400 hover:bg-gray-200 p-2 rounded-full"><Icon name="x" size={18}/></button>
+                                    </div>
+                                    <form onSubmit={handleSaveTxSubmit} className="p-6">
+                                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                                            <div className="lg:col-span-4 space-y-4">
+                                                <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Fecha</label><input required type="date" className="w-full border-2 border-gray-200 rounded-lg p-2.5 outline-none font-bold text-gray-700 focus:border-fuchsia-500" value={txForm.date} onChange={e => setTxForm({...txForm, date: e.target.value})} /></div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Comprobante</label>
+                                                    <select required className="w-full border-2 border-gray-200 rounded-lg p-2.5 font-bold text-gray-700 outline-none focus:border-fuchsia-500" value={txForm.type} onChange={e => setTxForm({...txForm, type: e.target.value, paymentMethod: '', allocatedTo: []})}>
+                                                        <option value="invoice">Factura / Mercadería (+)</option>
+                                                        <option value="payment">Pago (-)</option>
+                                                        <option value="credit_note">Nota de Crédito (-)</option>
+                                                    </select>
+                                                </div>
+                                                <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Detalle</label><input required type="text" className="w-full border-2 border-gray-200 rounded-lg p-2.5 uppercase font-bold text-gray-700 outline-none focus:border-fuchsia-500" placeholder="Ej: Mercadería..." value={txForm.detail} onChange={e => setTxForm({...txForm, detail: e.target.value})} /></div>
+                                                <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nº Comprobante</label><input type="text" className="w-full border-2 border-gray-200 rounded-lg p-2.5 font-bold text-gray-700 outline-none focus:border-fuchsia-500" value={txForm.receiptNumber} onChange={e => setTxForm({...txForm, receiptNumber: e.target.value})} /></div>
+                                                
+                                                {txForm.type === 'payment' && (
+                                                    <div className="space-y-4 pt-4 border-t border-gray-200">
+                                                        <div>
+                                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Medio de Pago</label>
+                                                            <select required className="w-full border-2 border-gray-200 rounded-lg p-2.5 font-bold text-gray-700 outline-none focus:border-fuchsia-500" value={txForm.paymentMethod} onChange={e => setTxForm({...txForm, paymentMethod: e.target.value})}>
+                                                                <option value="">Seleccionar...</option><option value="transfer">Transferencia</option><option value="deposit">Depósito</option><option value="echeq">Echeq</option><option value="cheque">Cheque</option><option value="cash">Efectivo</option>
+                                                            </select>
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-xs font-black text-fuchsia-600 uppercase mb-2">Imputar a Facturas:</label>
+                                                            <div className="w-full border-2 border-gray-200 rounded-lg max-h-32 overflow-y-auto p-2 space-y-2 text-sm bg-gray-50">
+                                                                {invoicesPendingList.length === 0 ? <p className="text-gray-400 text-xs text-center p-2">No hay pendientes.</p> : invoicesPendingList.map(inv => (
+                                                                    <label key={inv.id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                                                        <input type="checkbox" className="accent-fuchsia-600 w-4 h-4" checked={txForm.allocatedTo.includes(inv.id)} onChange={e => {
+                                                                            if(e.target.checked) setTxForm(p=>({...p, allocatedTo: [...p.allocatedTo, inv.id]}));
+                                                                            else setTxForm(p=>({...p, allocatedTo: p.allocatedTo.filter(id=>id!==inv.id)}));
+                                                                        }}/>
+                                                                        <span className="font-medium text-gray-700">Fac. {formatDate(inv.date)} - {formatCurrency((inv.amountA_debit||0)+(inv.amountB_debit||0))}</span>
+                                                                    </label>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                                                <div className="bg-white p-6 rounded-2xl border-2 border-fuchsia-100 shadow-sm relative overflow-hidden">
+                                                    <div className="absolute top-0 left-0 w-1.5 h-full bg-fuchsia-500"></div>
+                                                    <h5 className="font-black text-fuchsia-600 text-center mb-6 tracking-widest text-sm">PARTE A</h5>
+                                                    <label className="text-xs font-black uppercase text-gray-700">{txForm.type === 'invoice' ? 'DEBE (+)' : 'HABER (-)'}</label>
+                                                    <input type="number" step="0.01" min="0" className="w-full p-4 border-2 border-gray-200 rounded-xl mt-2 outline-none font-mono font-bold text-gray-900 text-lg focus:border-fuchsia-500" value={txForm.amountA} onChange={e => setTxForm({...txForm, amountA: e.target.value})} placeholder="0.00" />
+                                                </div>
+                                                <div className="bg-white p-6 rounded-2xl border-2 border-gray-200 shadow-sm relative overflow-hidden">
+                                                    <div className="absolute top-0 left-0 w-1.5 h-full bg-black"></div>
+                                                    <h5 className="font-black text-black text-center mb-6 tracking-widest text-sm">PARTE B</h5>
+                                                    <label className="text-xs font-black uppercase text-gray-700">{txForm.type === 'invoice' ? 'DEBE (+)' : 'HABER (-)'}</label>
+                                                    <input type="number" step="0.01" min="0" className="w-full p-4 border-2 border-gray-200 rounded-xl mt-2 outline-none font-mono font-bold text-gray-900 text-lg focus:border-black" value={txForm.amountB} onChange={e => setTxForm({...txForm, amountB: e.target.value})} placeholder="0.00" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="mt-8 flex justify-end gap-3 pt-5 border-t border-gray-200">
+                                            <button type="button" onClick={() => setIsFormOpen(false)} className="px-6 py-3 border border-gray-300 font-bold rounded-xl hover:bg-gray-50">Cancelar</button>
+                                            <button type="submit" className="px-6 py-3 bg-black text-white font-bold rounded-xl hover:bg-gray-800">{editingTxId ? 'Actualizar' : 'Guardar'}</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        )}
+
+                        {}
+                        <div className="rounded-b-xl overflow-hidden bg-white shadow-[0_0_15px_rgba(0,0,0,0.05)] border border-gray-100">
+                            <div className="overflow-x-auto hide-scrollbar">
+                                <table className="w-full text-xs sm:text-sm text-left border-collapse">
+                                    <thead>
+                                        <tr>
+                                            <th className="bg-gray-100 px-4 py-4 font-black tracking-widest text-center border-b-2 border-r border-gray-200 w-24 align-middle text-gray-900" rowSpan="2">FECHA</th>
+                                            <th className="bg-gray-100 px-4 py-4 font-black tracking-widest text-left border-b-2 border-r border-gray-200 align-middle text-gray-900" rowSpan="2">DETALLE</th>
+                                            <th className="bg-gray-100 px-4 py-4 font-black tracking-widest text-center border-b-2 border-r-2 border-gray-300 w-32 align-middle text-gray-900" rowSpan="2">COMPROBANTE</th>
+                                            <th className="bg-white px-2 py-3 text-center border-x-2 border-t-2 border-b-2 border-fuchsia-200 text-fuchsia-700 font-black tracking-widest" colSpan="3">PARTE A</th>
+                                            <th className="bg-white px-2 py-3 text-center border-x-2 border-t-2 border-b-2 border-gray-300 text-gray-900 font-black tracking-widest" colSpan="3">PARTE B</th>
+                                            <th className="bg-gray-100 px-4 py-4 text-center font-black tracking-widest border-b-2 border-l-2 border-gray-300 w-32 align-middle text-gray-900" rowSpan="2">SALDO TOTAL</th>
+                                            <th className="bg-gray-100 px-2 py-4 text-center no-pdf w-24 align-middle text-gray-900" rowSpan="2">ACCIONES</th>
+                                        </tr>
+                                        <tr className="text-[10px] uppercase text-gray-500 font-black tracking-wider">
+                                            <th className="px-2 py-2 text-center border-b-2 border-l-2 border-fuchsia-300 bg-fuchsia-50 w-24">Debe</th>
+                                            <th className="px-2 py-2 text-center border-b-2 border-x border-fuchsia-200 bg-fuchsia-50 w-24">Haber</th>
+                                            <th className="px-2 py-2 text-center border-b-2 border-r-2 border-fuchsia-300 text-fuchsia-700 bg-fuchsia-100 w-28">Saldo</th>
+                                            <th className="px-2 py-2 text-center border-b-2 border-l-2 border-gray-300 bg-gray-100 w-24">Debe</th>
+                                            <th className="px-2 py-2 text-center border-b-2 border-x border-gray-200 bg-gray-100 w-24">Haber</th>
+                                            <th className="px-2 py-2 text-center border-b-2 border-r-2 border-gray-300 text-black bg-gray-200 w-28">Saldo</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100 font-mono text-[12px]">
+                                        {(saldoAnteriorA > 0 || saldoAnteriorB > 0 || ledgerDateFrom) && (
+                                            <tr className="bg-yellow-50 text-gray-600 border-b-2 border-gray-200">
+                                                <td className="px-4 py-3 border-r border-gray-200 text-center">-</td>
+                                                <td className="px-4 py-3 border-r border-gray-200 font-bold font-sans">SALDO ANTERIOR / INICIAL</td>
+                                                <td className="px-4 py-3 border-r-2 border-gray-300 text-center">-</td>
+                                                <td className="px-3 py-3 text-right border-l-2 border-fuchsia-200 bg-fuchsia-50/40"></td>
+                                                <td className="px-3 py-3 text-right bg-fuchsia-50/40"></td>
+                                                <td className="px-3 py-3 text-right border-r-2 border-fuchsia-200 font-bold text-fuchsia-600 bg-fuchsia-100/40">{formatCurrency(saldoAnteriorA)}</td>
+                                                <td className="px-3 py-3 text-right border-l-2 border-gray-200 bg-gray-50/50"></td>
+                                                <td className="px-3 py-3 text-right bg-gray-50/50"></td>
+                                                <td className="px-3 py-3 text-right border-r-2 border-gray-200 font-bold text-black bg-gray-200/50">{formatCurrency(saldoAnteriorB)}</td>
+                                                <td className="px-4 py-3 text-right font-black bg-white">{formatCurrency((saldoAnteriorA||0) + (saldoAnteriorB||0))}</td>
+                                                <td className="no-pdf bg-white border-l border-white"></td>
+                                            </tr>
+                                        )}
+                                        {visibleRows.map(tx => {
+                                            const isPayment = tx.type === 'payment' || tx.type === 'credit_note';
+                                            return (
+                                                <tr key={tx.id} className="group hover:bg-gray-50 bg-white">
+                                                    <td className="px-4 py-4 border-r border-gray-100 font-sans text-center align-top text-gray-700 font-medium">{formatDate(tx.date)}</td>
+                                                    <td className="px-4 py-4 border-r border-gray-100 font-sans align-top">
+                                                        <div className={`font-bold ${isPayment ? 'text-green-700' : 'text-gray-900'} uppercase`}>{tx.detail}</div>
+                                                        {tx.type === 'invoice' && tx.isOverdue && <div className="text-[9px] text-red-600 font-black mt-1 flex items-center gap-1"><Icon name="alert" size={10}/> VENCIDA</div>}
+                                                    </td>
+                                                    <td className="px-4 py-4 border-r-2 border-gray-200 font-sans align-top text-center">
+                                                        <div className="text-gray-500 font-bold text-[11px] break-all">{tx.receiptNumber || '-'}</div>
+                                                        {tx.type === 'invoice' && <div className={`inline-block px-2 py-0.5 mt-2 rounded text-[9px] font-black uppercase ${tx.statusColor}`}>{tx.statusText}</div>}
+                                                    </td>
+                                                    <td className="px-3 py-4 text-right border-l-2 border-fuchsia-100 bg-fuchsia-50/30">{tx.amountA_debit > 0 ? formatCurrency(tx.amountA_debit) : ''}</td>
+                                                    <td className="px-3 py-4 text-right bg-fuchsia-50/30 text-fuchsia-600 font-bold">{tx.amountA_credit > 0 ? formatCurrency(tx.amountA_credit) : ''}</td>
+                                                    <td className="px-3 py-4 text-right font-black border-r-2 border-fuchsia-100 bg-fuchsia-100/50 text-fuchsia-600">{formatCurrency(tx.runningBalanceA)}</td>
+                                                    <td className="px-3 py-4 text-right border-l-2 border-gray-100 bg-gray-50/50">{tx.amountB_debit > 0 ? formatCurrency(tx.amountB_debit) : ''}</td>
+                                                    <td className="px-3 py-4 text-right bg-gray-50/50 text-gray-500 font-bold">{tx.amountB_credit > 0 ? formatCurrency(tx.amountB_credit) : ''}</td>
+                                                    <td className="px-3 py-4 text-right font-black border-r-2 border-gray-100 bg-gray-200/50 text-black">{formatCurrency(tx.runningBalanceB)}</td>
+                                                    <td className="px-4 py-4 text-right font-black text-[14px] border-l-2 border-white">{formatCurrency(tx.totalBalance)}</td>
+                                                    <td className="px-2 py-4 text-center bg-white no-pdf border-l border-white">
+                                                        <div className="flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <button onClick={() => handleEditTx(tx)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded"><Icon name="edit" size={16}/></button>
+                                                            <button onClick={() => confirmAction('¿Eliminar este movimiento?', () => setTransactions(prev=>prev.filter(t=>t.id!==tx.id)))} className="p-1.5 text-red-400 hover:bg-red-50 rounded"><Icon name="trash" size={16}/></button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )
+                                        })}
+                                    </tbody>
+                                    <tfoot>
+                                        <tr className="bg-gray-100 text-gray-900 font-black text-sm border-t-2 border-gray-300">
+                                            <td colSpan="3" className="px-4 py-5 text-right uppercase tracking-widest border-r-2 border-gray-300 text-gray-600 text-xs">SALDO FINAL:</td>
+                                            <td colSpan="3" className="px-4 py-5 text-right text-fuchsia-700 border-x-2 border-gray-300 bg-fuchsia-50">{formatCurrency(runningBalanceA)}</td>
+                                            <td colSpan="3" className="px-4 py-5 text-right text-gray-900 border-x-2 border-gray-300 bg-white">{formatCurrency(runningBalanceB)}</td>
+                                            <td className="px-4 py-5 text-right bg-gray-200 text-black text-[17px]">{formatCurrency(runningBalanceA + runningBalanceB)}</td>
+                                            <td className="bg-gray-100 border-none no-pdf"></td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            return (
+                <div className="min-h-screen pb-10 font-sans">
+                    <div className="max-w-[1500px] mx-auto p-4 sm:p-6 space-y-6">
+                        <header className="bg-white rounded-2xl shadow-sm overflow-hidden no-pdf border border-gray-200">
+                            <div className="p-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 bg-black text-white rounded-xl flex items-center justify-center font-black text-xl shadow-lg shadow-black/20">M</div>
+                                    <div>
+                                        <h1 className="text-2xl font-black text-gray-900 tracking-tight">Tablero de Proveedores <span className="px-2 py-1 bg-fuchsia-100 text-fuchsia-800 text-[10px] rounded uppercase tracking-widest ml-2 align-middle">Pro</span></h1>
+                                        <p className="text-gray-500 text-sm mt-1 font-medium">Consolidado y Libro Diario de Cuentas Corrientes</p>
+                                    </div>
+                                </div>
+                                <div className="flex flex-col items-end gap-2">
+                                    <div className="flex items-center gap-1.5 text-[10px] font-bold text-gray-600 bg-gray-100 px-2.5 py-1 rounded-full uppercase tracking-wider border border-gray-200">
+                                        <Icon name="database" size={12}/> Guardado Local Seguro
+                                    </div>
+                                    <div className="bg-gray-50 px-5 py-2.5 rounded-xl text-right border border-gray-200">
+                                        <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest">Fecha Operativa</p>
+                                        <p className="font-black text-black text-lg">{formatDate(FECHA_ACTUAL.toISOString())}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </header>
+
+                        <main id="pdf-export-area" className="transition-all duration-300 relative">
+                            {currentView === 'main' && <DashboardView />}
+                            {currentView === 'details' && <DetailsView />}
+                        </main>
+                    </div>
+
+                    {overdueList.length > 0 && (
+                        <div className="fixed bottom-6 right-6 z-50 no-pdf fade-in">
+                            <button onClick={() => setIsAlertsOpen(!isAlertsOpen)} className="bg-red-600 hover:bg-red-700 text-white p-4 rounded-full shadow-[0_10px_25px_rgba(220,38,38,0.5)] relative transition-all">
+                                <Icon name="bell" />
+                                <span className="absolute -top-2 -right-2 bg-black text-white text-[10px] font-black w-6 h-6 rounded-full flex items-center justify-center border-2 border-white">{overdueList.reduce((acc, p)=>acc+p.count, 0)}</span>
+                            </button>
+                            {isAlertsOpen && (
+                                <div className="absolute bottom-16 right-0 w-80 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden fade-in">
+                                    <div className="bg-red-600 px-5 py-4 flex justify-between items-center text-white">
+                                        <h4 className="font-black flex items-center gap-2"><Icon name="alert" size={18}/> Alertas de Vencimiento</h4>
+                                    </div>
+                                    <div className="max-h-80 overflow-y-auto divide-y divide-gray-100">
+                                        {overdueList.map(p => (
+                                            <div key={p.id} className="p-4 hover:bg-red-50/50 transition-colors cursor-pointer" onClick={() => { setSelectedProviderId(p.id); setCurrentView('details'); setIsAlertsOpen(false); }}>
+                                                <div className="flex justify-between items-start">
+                                                    <span className="font-black text-gray-900 text-sm">{p.name}</span>
+                                                    <span className="text-[10px] bg-red-100 text-red-600 font-bold px-2 py-0.5 rounded uppercase tracking-wider">{p.count} Fac.</span>
+                                                </div>
+                                                <p className="text-xs text-gray-500 mt-1">Registra deuda atrasada por <strong className="text-red-500">{formatCurrency(p.amount)}</strong>.</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {confirmDialog.isOpen && (
+                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[200] p-4 fade-in no-pdf">
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8 text-center border border-gray-200">
+                                <div className="mx-auto w-14 h-14 bg-red-50 text-red-600 rounded-full flex items-center justify-center mb-5"><Icon name="alert" size={28}/></div>
+                                <h3 className="text-xl font-black text-gray-900 mb-2">¿Estás seguro?</h3>
+                                <p className="text-gray-500 text-sm mb-8 font-medium">{confirmDialog.message}</p>
+                                <div className="flex gap-3 justify-center">
+                                    <button onClick={() => setConfirmDialog({ isOpen: false })} className="flex-1 px-4 py-3 border border-gray-300 rounded-xl text-gray-700 font-bold">Cancelar</button>
+                                    <button onClick={() => { confirmDialog.onConfirm(); setConfirmDialog({ isOpen: false }); }} className="flex-1 px-4 py-3 bg-red-600 text-white rounded-xl font-bold">Confirmar</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {pdfConfig.isOpen && (
+                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[200] p-4 fade-in no-pdf">
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 border border-gray-200">
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="text-xl font-black text-gray-900 flex items-center gap-2"><Icon name="download"/> Reporte PDF</h3>
+                                    <button onClick={() => setPdfConfig({ isOpen: false })} className="text-gray-400 hover:bg-gray-100 p-2 rounded-full"><Icon name="x"/></button>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <button onClick={() => executePDFExport('portrait')} className="border-2 border-gray-200 hover:border-black rounded-xl p-5 flex flex-col items-center gap-4 group">
+                                        <span className="font-bold text-gray-700 group-hover:text-black">Vertical</span>
+                                    </button>
+                                    <button onClick={() => executePDFExport('landscape')} className="border-2 border-gray-200 hover:border-black rounded-xl p-5 flex flex-col items-center gap-4 group">
+                                        <span className="font-bold text-gray-700 group-hover:text-black">Horizontal</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
